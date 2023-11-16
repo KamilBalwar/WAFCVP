@@ -1,0 +1,101 @@
+import json
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+
+app = Flask(__name__, static_url_path='/static', static_folder='static', template_folder='templates')
+soubor = "registrovane_osoby.json"
+try:
+    with open(soubor, "r") as file:
+        registrace = json.load(file)
+except FileNotFoundError:
+    registrace = []
+
+#metoda pro uložení registrace
+def uloz_registraci(registrace):
+    with open(soubor, "w") as file:
+        json.dump(registrace, file)
+
+#metoda pro zobrazení stránky s registrací
+@app.route('/registrace', methods=['GET'])
+def zobraz_registrace():
+    return render_template('druha_stranka.html', registrovane_osoby=registrace)
+
+#metoda pro registraci, hlídání posílání dat podle požadavků
+def process_registration(data):
+    je_plavec = data.get('je_plavec')
+    nick = data.get('nick')
+    jmeno = data.get('jmeno')
+    prijmeni = data.get('prijmeni')
+    trida = data.get('trida')
+    kanoe_kamarad = data.get('kanoe_kamarad')
+
+#hlídání plavce
+    if je_plavec != '1':
+        return "Osoba neumí plavat.", 400
+#hlídání nicku
+    if not (nick.isalnum() and 2 <= len(nick) <= 20):
+        return "Neplatná přezdívka osoby.", 400
+#hlídání jména
+    if not (jmeno.isalpha() and 2 <= len(jmeno) <= 20):
+        return "Neplatné jméno.", 400
+#hlídání příjmení
+    if not (prijmeni.isalpha() and 2 <= len(prijmeni) <= 20):
+        return "Neplatné příjmení.", 400
+#hlídání třídy
+    if not (trida.isalnum() and 1 <= len(trida) <= 5):
+        return "Neplatná třída.", 400
+#hlídání kamaráda na kánoji
+    if kanoe_kamarad and not (kanoe_kamarad.isalnum() and 2 <= len(kanoe_kamarad) <= 20):
+        return "Neplatný kamarád na lodi.", 400
+
+    registrace.append(data)
+    uloz_registraci(registrace)
+    return "Registraeeece úspěšná.", 200
+
+
+
+
+
+#metoda pro hlídání přezdívky
+@app.route('/api/check-nickname', methods=['GET'])
+def check_nickname():
+    nickname = request.args.get('nick')
+    exists = any(entry['nick'] == nickname for entry in registrace)
+    return jsonify({'exists': exists}), 200
+
+# Tato cesta vrátí všechny registrované uživatele
+@app.route('/api/get-registered-users', methods=['GET'])
+def get_registered_users():
+    return jsonify(registrace)
+
+#Odeslání formuláře
+@app.route('/submit', methods=['POST'])
+def submit_form():
+    data = request.form.to_dict()
+    nickname = data.get('nick')
+
+    # Kontrola duplicit na straně serveru
+    if any(entry['nick'] == nickname for entry in registrace):
+        return redirect(url_for('existing_user', nickname=nickname))
+    else:
+        response, status_code = process_registration(data)
+        uloz_registraci(registrace)
+
+    return render_template('success.html', message=response), status_code
+
+#stránka s registrovanými uživateli
+@app.route('/existing_user/<nickname>', methods=['GET'])
+def existing_user(nickname):
+    return render_template('existing_user.html', nickname=nickname)
+
+#načtení 1. strany
+@app.route('/', methods=['GET'])
+def index():
+    return render_template('prvni_stranka.html', registrovane_osoby=registrace), 200
+
+#načtení 2. strany
+@app.route('/druha_stranka', methods=['GET', 'POST'])
+def druha_stranka():
+    return render_template('druha_stranka.html', registrovane_osoby=registrace), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
